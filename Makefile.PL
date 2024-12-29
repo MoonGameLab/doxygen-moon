@@ -5,9 +5,8 @@ all_from  'lib/Doxygen/Moon.pm';
 author    q{Tourahi Amine <tourahi.amine@gmail.com>};
 license   'to-do';
 
-build_requires 'Test::More';
+install_script 'bin/moon2dox';
+auto_install;
 
-
-
-repository 'to-do'
+repository 'https://github.com/MoonGameLab/doxygen-moon';
 WriteAll;
