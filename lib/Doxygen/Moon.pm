@@ -50,6 +50,7 @@ sub parse {
 
     my $in_block = 0;
     my $in_function = 0;
+    my $in_fat_arrow_function = 0;
     my $block_name = q{};
     my $result = q{};
 
@@ -88,23 +89,32 @@ sub parse {
             $line =~ s/=//;
             $result .= "$line\n";
         }
-        elsif ($in_function == 1 && $line =~ /^(\s*)/ && length($1) < $current_indent) {
+         # fat arrow function start
+        elsif ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/) {
+            $in_fat_arrow_function = 1;
+            $current_indent = length($1);
+            $line =~ s/^(\w+)\s*=\s*\(([^)]*)\)\s*=>/$1(self, $2) ->/;
+            $line .= q{;};
+            $result .= "$line\n";
+        }
+        elsif (($in_function == 1 || $in_fat_arrow_function == 1) && $line =~ /^(\s*)/ && length($1) < $current_indent) {
             # Function ends when the current indentation level is less than the function's starting level
             $in_function = 0;
+            $in_fat_arrow_function = 0;
             $current_indent = 0;
         }
         # block start
-        elsif ($in_function == 0 && $line =~ /^(\S+)\s*=\s*{/ && $line !~ /}/) {
+        elsif (($in_function == 0 && $in_fat_arrow_function == 0) && $line =~ /^(\S+)\s*=\s*{/ && $line !~ /}/) {
             $block_name = $1;
             $in_block = 1;
         }
         # block end
-        elsif ($in_function == 0 && $line =~ /^\s*}/ && $in_block == 1) {
+        elsif (($in_function == 0 && $in_fat_arrow_function == 0) && $line =~ /^\s*}/ && $in_block == 1) {
             $block_name = q{};
             $in_block = 0;
         }
         # variables
-        elsif ($in_function == 0 && ($line =~ /=/ || $line =~ /:/) && $line !~ /\(\)\s*->/) {
+        elsif (($in_function == 0 && $in_fat_arrow_function == 0) && ($line =~ /=/ || $line =~ /:/) && $line !~ /\(\)\s*->/) {
             $line =~ s/(?=\S)/$block_name./ if $block_name;
             $line =~ s{,?(\s*)(?=///|$)}{;$1};
             $result .= "$line\n";
