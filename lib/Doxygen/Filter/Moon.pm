@@ -1,4 +1,4 @@
-
+#** @file Moon.pm
 package Doxygen::Filter::Moon;
 
 use warnings;
@@ -8,10 +8,6 @@ use Log::Log4perl;
 use IO::Handle;
 use File::Slurp;
 
-=head1 NAME
-
-Doxygen::Moon - Make Doxygen support Moonscript
-
 =head1 VERSION
 
 Version 0.01
@@ -19,6 +15,21 @@ Version 0.01
 =cut
 
 our $VERSION = '0.01';
+$VERSION = eval $VERSION;
+
+
+my $validStates = {
+    'NORMAL'        => 0,
+    'COMMENT'       => 1,
+    'DOXYGEN'       => 2,
+    'METHOD'        => 3,
+    'DOXYFILE'      => 21,
+    'DOXYCLASS'     => 22,
+    'DOXYFUNCTION'  => 23,
+    'DOXYMETHOD'    => 24,
+    'DOXYCOMMENT'   => 25,
+};
+
 
 =head2 SUBROUTINES/METHODS
 
@@ -28,121 +39,144 @@ This function will create a Doxygen::Moon object.
 
 =cut
 
-sub new {
-    my ($class, %args) = @_;
-    my $self = bless \%args, $class;
-    $self->_init;
-    return $self;
-}
+sub new
+{
+    #** @method private new ()
+    # This is the constructor and it calls _init() to initiate
+    # the various variables
+    #*
+    my $pkg = shift;
+    my $class = ref($pkg) || $pkg;
 
-sub _init {
-    my $self = shift;
-    $self->{mark} = '--!';
-}
+    my $self = {};
+    bless ($self, $class);
 
-
-=head2 parse
-
-This function will parse the given input file and return the result.
-
-=cut
-
-sub parse {
-    my $self = shift;
-    my $input = shift;
+    $self->{'_iDebug'}           = 1;
 
     my $logger = $self->GetLogger($self);
 
-    my $in_block = 0;
-    my $in_function = 0;
-    my $in_fat_arrow_function = 0;
-    my $block_name = q{};
-    my $result = q{};
+    $logger->debug("=== Entering New ===");
+    $logger->info("Class : $class\n");
 
-    my $mark = $self->mark;
-    my $current_indent = 0;
+    # Lets send any passed in arguments to the _init method
+    $self->_init(@_);
+    return $self;
+}
 
-    open FH, "<$input"
-        or die "Can't open $input for reading: $!";
+sub DESTROY
+{
+    #** @method private DESTROY ()
+    # This is the destructor
+    #*
+    my $self = shift;
+    $self = {};
+}
 
-    foreach my $line (<FH>) {
-        chomp $line;
+sub RESETSUB
+{
+    my $self = shift;
+    $self->{'_iOpenBrace'}          = 0;
+    $self->{'_iCloseBrace'}         = 0;
+    $self->{'_sCurrentMethodName'}  = undef;
+    $self->{'_sCurrentMethodType'}  = undef;
+    $self->{'_sCurrentMethodState'} = undef;
+}
 
+sub RESETFILE  { my $self = shift; $self->{'_aRawFileData'}   = []; $self->{'_aUncommentFileData'}   = [];   }
 
-        # include empty lines
-        if ($line =~ m{^\s*$}) {
-            $result .= "\n";
-        }
-        # skip normal comments
-        next if $line =~ /^\s*--[^!]/;
+sub RESETCLASS
+{
+    my $self = shift;
+    #$self->{'_sCurrentClass'}  = 'main';
+    #push (@{$self->{'_hData'}->{'class'}->{'classorder'}}, 'main');
+    $self->_SwitchClass('main');
+}
 
-        # remove end of line comments
-        $line =~ s/--[^!].*//;
-        # skip comparison
-        next if $line =~ /==/;
-        # translate to doxygen mark
-        $line =~ s{$mark}{///};
+sub RESETDOXY  { shift->{'_aDoxygenBlock'}  = [];    }
 
-        if ($line =~ m{^\s*///}) {
-            $result .= "$line\n";
-        }
-        # function start
-        elsif ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/) {
-            $in_function = 1;
-            $current_indent = length($1);
-            $line .= q{;};
-            $line =~ s/=//;
-            $result .= "$line\n";
-        }
-         # fat arrow function start
-        elsif ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/) {
-            $in_fat_arrow_function = 1;
-            $current_indent = length($1);
-            $line =~ s/^(\w+)\s*=\s*\(([^)]*)\)\s*=>/$1(self, $2) ->/;
-            $line .= q{;};
-            $result .= "$line\n";
-        }
-        elsif (($in_function == 1 || $in_fat_arrow_function == 1) && $line =~ /^(\s*)/ && length($1) < $current_indent) {
-            # Function ends when the current indentation level is less than the function's starting level
-            $in_function = 0;
-            $in_fat_arrow_function = 0;
-            $current_indent = 0;
-        }
-        # block start
-        elsif (($in_function == 0 && $in_fat_arrow_function == 0) && $line =~ /^(\S+)\s*=\s*{/ && $line !~ /}/) {
-            $block_name = $1;
-            $in_block = 1;
-        }
-        # block end
-        elsif (($in_function == 0 && $in_fat_arrow_function == 0) && $line =~ /^\s*}/ && $in_block == 1) {
-            $block_name = q{};
-            $in_block = 0;
-        }
-        # variables
-        elsif (($in_function == 0 && $in_fat_arrow_function == 0) && ($line =~ /=/ || $line =~ /:/) && $line !~ /\(\)\s*->/) {
-            $line =~ s/(?=\S)/$block_name./ if $block_name;
-            $line =~ s{,?(\s*)(?=///|$)}{;$1};
-            $result .= "$line\n";
-        }
+sub _init
+{
+    my $self = shift;
+    $self->{'_sState'}          = undef;
+    $self->{'_sPreviousState'}  = [];
+    $self->_ChangeState('NORMAL');
+    $self->{'_hData'}           = {};
+    $self->RESETFILE();
+    $self->RESETCLASS();
+    $self->RESETSUB();
+    $self->RESETDOXY();
+}
 
+sub _ChangeState
+{
+    #** @method private _ChangeState ($state)
+    # This method will change and keep track of the various states that the state machine
+    # transitions to and from. Having this information allows you to return to a previous
+    # state. If you pass nothing in to this method it will restore the previous state.
+    # @param state - optional string (state to change to)
+    #*
+
+    my $self = shift;
+    my $state = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("=== Entering _ChangeState ===");
+
+    if (defined $state && exists $validStates->{$state})
+    {
+        $logger->debug("State pased in: $state");
+        unless (defined $self->{'-sState'} && $self->{'_sState'} eq $state)
+        {
+            # Need to push the current state to the array BEFORE we change it and only
+            # if we are not currently at that state
+            push (@{$self->{'_sPreviousState'}}, $self->{'_sState'});
+            $self->{'_sState'} = $state;
+        }
     }
-
-    close FH;
-    return $result;
+    else
+    {
+        # If nothing is passed in, lets set the current state to the previous state.
+        $logger->debug("No state passed in, lets revert to previous state");
+        my $previous = pop @{$self->{'_sPreviousState'}};
+        if (defined $previous)
+        {
+            $logger->debug("Previous state was $previous");
+        }
+        else
+        {
+            $logger->error("There is no previous state! Setting to NORMAL");
+            $previous = 'NORMAL';
+        }
+        $self->{'_sState'} = $previous;
+    }
 }
 
 
+sub parse {
 
-=head2 mark
+}
 
-This function will set the mark style. The default value is "--!".
+# ----------------------------------------
+# Private Methods
+# ----------------------------------------
 
-=cut
+sub _SwitchClass
+{
+    my $self = shift;
+    my $class = shift;
 
-sub mark {
-    my ($self, $value) = @_;
-    $self->{mark} = $value if $value;
-    return $self->{mark};
+    $self->{'_sCurrentClass'} = $class;
+    if (!exists $self->{'_hData'}->{'class'}->{$class})
+    {
+        push(@{$self->{'_hData'}->{'class'}->{'classorder'}}, $class);
+        $self->{'_hData'}->{'class'}->{$class} = {
+            classname                   => $class,
+            inherits                    => [],
+            attributeorder              => [],
+            subroutineorder             => [],
+        };
+    }
+
+    return $self->{'_hData'}->{'class'}->{$class};
 }
 
 
