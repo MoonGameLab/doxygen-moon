@@ -54,6 +54,7 @@ sub parse {
     my $result = q{};
 
     my $mark = $self->mark;
+    my $current_indent = 0;
 
     open FH, "<$input"
         or die "Can't open $input for reading: $!";
@@ -61,7 +62,6 @@ sub parse {
     foreach my $line (<FH>) {
         chomp $line;
 
-        my $current_indent = 0;
 
         # include empty lines
         if ($line =~ m{^\s*$}) {
@@ -85,11 +85,13 @@ sub parse {
             $in_function = 1;
             $current_indent = length($1);
             $line .= q{;};
+            $line =~ s/=//;
             $result .= "$line\n";
         }
         elsif ($in_function == 1 && $line =~ /^(\s*)/ && length($1) < $current_indent) {
             # Function ends when the current indentation level is less than the function's starting level
             $in_function = 0;
+            $current_indent = 0;
         }
         # block start
         elsif ($in_function == 0 && $line =~ /^(\S+)\s*=\s*{/ && $line !~ /}/) {
@@ -102,7 +104,7 @@ sub parse {
             $in_block = 0;
         }
         # variables
-        elsif ($in_function == 0 && $line =~ /=/) {
+        elsif ($in_function == 0 && ($line =~ /=/ || $line =~ /:/) && $line !~ /\(\)\s*->/) {
             $line =~ s/(?=\S)/$block_name./ if $block_name;
             $line =~ s{,?(\s*)(?=///|$)}{;$1};
             $result .= "$line\n";
