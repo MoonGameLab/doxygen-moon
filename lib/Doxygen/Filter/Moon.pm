@@ -1,9 +1,12 @@
 
-package Doxygen::Moon;
-
+package Doxygen::Filter::Moon;
 
 use warnings;
 use strict;
+use parent qw(Doxygen::Filter);
+use Log::Log4perl;
+use IO::Handle;
+use File::Slurp;
 
 =head1 NAME
 
@@ -47,6 +50,8 @@ This function will parse the given input file and return the result.
 sub parse {
     my $self = shift;
     my $input = shift;
+
+    my $logger = $self->GetLogger($self);
 
     my $in_block = 0;
     my $in_function = 0;

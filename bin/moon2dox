@@ -2,8 +2,38 @@
 
 use strict;
 use warnings;
-use Doxygen::Moon;
+use Doxygen::Filter::Moon;
+use Log::Log4perl;
 
-my $input = $ARGV[0];
-my $p = Doxygen::Moon->new;
-print $p->parse($input);
+
+# You can not have any debugging turned on if you send the data through
+# doxygen as it will mess up the output.  So before you run "doxygen Doxyfile"
+# make sure you have turned off all of the debugging.
+# debugging output
+my %hDebugConfig = (
+    'log4perl.oneMessagePerAppender'        => 1,
+    'log4perl.rootlogger'                   => 'FATAL, SCREEN',
+    'log4perl.appender.SCREEN'              => 'Log::Log4perl::Appender::Screen',
+    'log4perl.appender.SCREEN.stderr'       => 0,
+    'log4perl.appender.SCREEN.Threshold'    => 'DEBUG',
+    'log4perl.appender.SCREEN.layout'       => 'Log::Log4perl::Layout::PatternLayout',
+    'log4perl.appender.SCREEN.layout.ConversionPattern' => '%-5p %L %M{1}() - %m%n',
+);
+
+Log::Log4perl::init(\%hDebugConfig);
+
+# Lets grab the file name that passed in to the script
+my $sFilename = $ARGV[0];
+
+unless (-r $sFilename) { die "This file is not readable\n"; }
+
+$sFilename =~ /\.([a-zA-Z]{1,4})$/;
+my $sFileExtention = lc($1);
+
+my $filter;
+
+if ( $sFileExtention eq 'moon' )
+{
+    $filter = new Doxygen::Filter::Moon();
+    print $filter->parse($sFilename);
+}
