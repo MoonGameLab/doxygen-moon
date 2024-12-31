@@ -19,15 +19,15 @@ $VERSION = eval $VERSION;
 
 
 my $validStates = {
-    'NORMAL'        => 0,
-    'COMMENT'       => 1,
-    'DOXYGEN'       => 2,
-    'METHOD'        => 3,
-    'DOXYFILE'      => 21,
-    'DOXYCLASS'     => 22,
-    'DOXYFUNCTION'  => 23,
-    'DOXYMETHOD'    => 24,
-    'DOXYCOMMENT'   => 25,
+    'NORMAL'         => 0,
+    'COMMENT'        => 1,
+    'DOXYGEN'        => 2,
+    'METHOD'         => 3,
+    'DOXYFILE'       => 21,
+    'DOXYCLASS'      => 22,
+    'DOXYFUNCTION'   => 23,
+    'DOXYMETHOD'     => 24,
+    'DOXYCOMMENT'    => 25,
 };
 
 
@@ -228,5 +228,60 @@ sub _SwitchClass
 }
 
 
+sub _ConvertToOfficialDoxygenSyntax
+{
+        #** @method private _ConvertToOfficialDoxygenSyntax ($line)
+    # This method will check the current line for various unsupported doxygen comment blocks and convert them
+    # to the type we support, #** @command.  The reason for this is so that we do not need to add them in
+    # every if statement throughout the code.
+    # @param line - required string (line of code)
+    # @retval line - string (line of code)
+    #*
+    my $self = shift;
+    my $line = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("=== Entering _ConvertToOfficialDoxygenSyntax ===");
 
-1; # End of Doxygen::Moon
+    # This will match ## @command and convert it to #** @command
+    if ($line =~ /^\s*--\s+\@/) { $line =~ s/^(\s*)--(\s+\@)/$1#\*\*$2/; }
+    else {
+        $logger->debug('Nothing to do, did not find any ## @');
+    }
+    return $line;
+}
+
+sub _ProcessMoonMethod
+{
+    my $self = shift;
+    my $line = shift;
+    my $rawLine = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("=== Entering _ProcessPerlMethod ===");
+
+    my $sClassName = $self->{'_sCurrentClass'};
+
+    if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/)
+    {
+        # We should keep track of the order in which the methods were written in the code so we can print
+        # them out in the same order
+        my $sName = $1;
+        # Remove any leading or trailing whitespace from the name, just to be safe
+        $sName =~ s/\s//g;
+        # check if we have a prototype
+        my ($method, $proto)  = split /[()]/, $sName;
+        $sName = $method || "";
+        $sName =~ s/\s//g;
+        if (defined($proto)) {$proto =~ s/\s//g;}
+        my $sProtoType = $proto || "";
+        $logger->debug("Method Name: $sName");
+        $logger->debug("Method Proto: $sProtoType");
+
+        push (@{$self->{'_hData'}->{'class'}->{$sClassName}->{'subroutineorder'}}, $sName);
+        $self->{'_sCurrentMethodName'} = $sName;
+        $self->{'_sProtoType'} = $sProtoType;
+    }
+}
+
+
+
+1; # End of Doxygen::Filter::Moon
