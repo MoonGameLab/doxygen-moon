@@ -150,6 +150,54 @@ sub _ChangeState
     }
 }
 
+sub _RemoveMoonComments
+{
+    my $Data = shift;
+
+    # Remove single-line comments (starting with --)
+    $Data =~ s/--.*//g;
+
+    # Remove multi-line comments (starting with --[[ and ending with --]])
+    $Data =~ s/--\[\[.*?--\]\]//gs;
+
+    return $Data;
+}
+
+sub ReadFile
+{
+    my $self = shift;
+    my $sFilename = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("=== Entering ReadFile ===");
+    $logger->debug("=== Entering ReadFile ===");
+
+    # Lets record the file name in the data structure
+    $self->{'_hData'}->{'filename'}->{'fullpath'} = $sFilename;
+
+    # Replace forward slash with a black slash
+    $sFilename =~ s/\\/\//g;
+    # Remove windows style drive letters
+    $sFilename =~ s/^.*://;
+
+    # Lets grab just the file name not the full path for the short name
+    $sFilename =~ /^(.*\/)*(.*)$/;
+    $self->{'_hData'}->{'filename'}->{'shortname'} = $2;
+
+    my $aFileData = read_file($sFilename);
+    $aFileData =~ s/\r$//g;
+    my @aRawFileData= split /(?<=\n)/, $aFileData;
+    $self->{'_aRawFileData'} = \@aRawFileData;
+    $self->{'_decommentOK'} = 1;
+
+    my @aUncommentFileData;
+    my $aUncommentFileData_tmp;
+
+    $aUncommentFileData_tmp = _RemoveMoonComments($aFileData);
+    print "$aUncommentFileData_tmp";
+    @aUncommentFileData = split /(?<=\n)/, $aUncommentFileData_tmp;
+    $self->{'_aUncommentFileData'} = \@aUncommentFileData;
+}
+
 
 sub parse {
 

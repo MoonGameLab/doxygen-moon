@@ -35,5 +35,5 @@ my $filter;
 if ( $sFileExtention eq 'moon' )
 {
     $filter = new Doxygen::Filter::Moon();
-    print $filter->parse($sFilename);
+    $filter->ReadFile($sFilename);
 }
