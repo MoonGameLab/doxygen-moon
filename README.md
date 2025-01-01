@@ -3,7 +3,7 @@
 ## Currently in development
 
 * Clone the master branch for the proof of concept
-* The actual dev is done in feature branches thy will be merged when done
+* The actual dev is done in feature branches they will be merged when done
 
 ## INSTALLATION
 
