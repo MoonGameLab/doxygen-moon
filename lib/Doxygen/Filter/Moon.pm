@@ -193,13 +193,61 @@ sub ReadFile
     my $aUncommentFileData_tmp;
 
     $aUncommentFileData_tmp = _RemoveMoonComments($aFileData);
-    print "$aUncommentFileData_tmp";
     @aUncommentFileData = split /(?<=\n)/, $aUncommentFileData_tmp;
     $self->{'_aUncommentFileData'} = \@aUncommentFileData;
 }
 
 
-sub parse {
+sub ProcessFile
+{
+    my $self = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("=== Entering ReadFile ===");
+
+    $self->{'_hData'}->{'lineNo'} = 0;
+    foreach my $line (@{$self->{'_aRawFileData'}})
+    {
+        my $uncommentLine = $self->{'_aUncommentFileData'}[$self->{'_hData'}->{'lineNo'}];
+        $self->{'_hData'}->{'lineNo'}++;
+
+        # Convert syntax block header to supported doxygen form, if this line is a header
+        $line = $self->_ConvertToOfficialDoxygenSyntax($line);
+
+        if ($self->{'_sState'} eq 'NORMAL')
+        {
+            $logger->debug("We are in state: NORMAL");
+            if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/) { $self->_ChangeState('METHOD');  }
+            elsif ($line =~ /^\s*#\*\*\s*\@/) { $self->_ChangeState('DOXYGEN'); }
+        }
+        elsif ($self->{'_sState'} eq 'METHOD')
+        {
+            $logger->debug("We are in state: METHOD");
+            if ($line =~ /^\s*#\*\*\s*\@/ ) { $self->_ChangeState('DOXYGEN'); }
+        }
+
+        if ($self->{'_sState'} eq 'NORMAL')
+        {
+            if ($line =~ /^\s*(\w+)\s*=\s*(?:assert\s+)?require\s+(?:['"][^'"]*['"]|\w+)(?:\s*\.\.\s*(?:['"][^'"]*['"]|\w+))*/)
+            {
+                my $sIncludeModule = $1;
+                if (!defined($sIncludeModule))
+                {
+                    push (@{$self->{'_hData'}->{'includes'}}, $sIncludeModule);
+                }
+            }
+            elsif ($line =~ /^\s*VERSION\s*=\s*['"]([^'"]+)['"]\s*$/)
+            {
+                # VERSION = '0.25';
+                my $version = $1;
+                # remove () if we have them
+                $version =~ s/[\'\"\(\)\;]//g;
+                $self->{'_hData'}->{'filename'}->{'version'} = $version;
+            }
+        }
+
+
+    }
+
 
 }
 
