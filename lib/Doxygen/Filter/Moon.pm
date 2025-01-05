@@ -250,10 +250,39 @@ sub ProcessFile
                 $version =~ s/[\'\"\(\)\;]//g;
                 $self->{'_hData'}->{'filename'}->{'version'} = $version;
             }
+            elsif ($line =~ /^\s*_MODULE_\s*=\s*['"]([^'"]+)['"]\s*$/)
+            {
+                $logger->debug("=== SWITCH MODULE ===");
+                $self->_SwitchModule($1);
+            }
             elsif ($line =~ /^(\w+)\s*=\s*(?:"(.*?)"|(\d+)|{.*}|(\w+)|(\w+)\\)$/)
             {
                 # Variables
                 my $varName = $1;
+                my $scope = substr($varName, 0, 1);
+
+                if (defined $varName)
+                {
+                    my $sModuleName = $self->{'_sCurrentModule'};
+                    if (!exists $self->{'_hData'}->{'module'}->{$sModuleName}->{attributes}->{$varName})
+                        {
+                            # only define the attribute if it was not yet defined by doxygen comment
+                            my $attrDef = $self->{'_hData'}->{'module'}->{$sModuleName}->{attributes}->{$varName} = {
+                                modifiers   => "static ",
+                                state       => $scope eq "_" ? "private" : "public",
+                            };
+                            push(@{$self->{'_hData'}->{'module'}->{$sModuleName}->{attributeorder}}, $varName);
+                        }
+
+                }
+                if ($line =~ /(--\*\*\s+\@.*$)/)
+                {
+                    # Lets look for an single in-line doxygen comment on a variable, array, or hash declaration
+                    my $sBlock = $1;
+                    push (@{$self->{'_aDoxygenBlock'}}, $sBlock);
+                    #$self->_ProcessDoxygenCommentBlock(); TODO
+                }
+
             }
         }
         elsif ($self->{'_sState'} eq 'METHOD')  {
