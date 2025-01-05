@@ -75,9 +75,8 @@ sub DESTROY
 sub RESETSUB
 {
     my $self = shift;
-    $self->{'_iOpenBrace'}          = 0;
-    $self->{'_iCloseBrace'}         = 0;
     $self->{'_sCurrentMethodName'}  = undef;
+    $self->{'_currentIndentLevel'}  = 0;
     $self->{'_sCurrentMethodType'}  = undef;
     $self->{'_sCurrentMethodState'} = undef;
 }
@@ -212,12 +211,18 @@ sub ProcessFile
 
         # Convert syntax block header to supported doxygen form, if this line is a header
         $line = $self->_ConvertToOfficialDoxygenSyntax($line);
+        print "Current state: $self->{'_sState'}\n";
 
         if ($self->{'_sState'} eq 'NORMAL')
         {
-            $logger->debug("We are in state: NORMAL");
-            if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/) { $self->_ChangeState('METHOD');  }
-            elsif ($line =~ /^\s*#\*\*\s*\@/) { $self->_ChangeState('DOXYGEN'); }
+            if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/)
+            {
+                $self->_ChangeState('METHOD');
+            }
+            elsif ($line =~ /^\s*#\*\*\s*\@/)
+            {
+                $self->_ChangeState('DOXYGEN');
+            }
         }
         elsif ($self->{'_sState'} eq 'METHOD')
         {
@@ -227,6 +232,7 @@ sub ProcessFile
 
         if ($self->{'_sState'} eq 'NORMAL')
         {
+            print "Line ::: $line\n";
             if ($line =~ /^\s*(\w+)\s*=\s*(?:assert\s+)?require\s+(?:['"][^'"]*['"]|\w+)(?:\s*\.\.\s*(?:['"][^'"]*['"]|\w+))*/)
             {
                 my $sIncludeModule = $1;
@@ -239,16 +245,27 @@ sub ProcessFile
             {
                 # VERSION = '0.25';
                 my $version = $1;
+
+                print "version ::: $version\n";
+
                 # remove () if we have them
                 $version =~ s/[\'\"\(\)\;]//g;
                 $self->{'_hData'}->{'filename'}->{'version'} = $version;
             }
+            elsif ($line =~ /^(\w+)\s*=\s*(?:"(.*?)"|(\d+)|{.*}|(\w+)|(\w+)\\)$/)
+            {
+                # Variables
+                my $varName = $1;
+
+
+
+            }
         }
-
-
+        elsif ($self->{'_sState'} eq 'METHOD')  {
+            print "PROCESSING METHOD ::: $line\n";
+            $self->_ProcessMoonMethod($uncommentLine, $line);
+        }
     }
-
-
 }
 
 # ----------------------------------------
@@ -278,7 +295,7 @@ sub _SwitchClass
 
 sub _ConvertToOfficialDoxygenSyntax
 {
-        #** @method private _ConvertToOfficialDoxygenSyntax ($line)
+    #** @method private _ConvertToOfficialDoxygenSyntax ($line)
     # This method will check the current line for various unsupported doxygen comment blocks and convert them
     # to the type we support, #** @command.  The reason for this is so that we do not need to add them in
     # every if statement throughout the code.
@@ -298,13 +315,31 @@ sub _ConvertToOfficialDoxygenSyntax
     return $line;
 }
 
+sub _GetIndentationLevel
+{
+    my $self = shift;
+    my $line = shift;
+
+    # Count leading spaces or tabs to determine the indentation level
+    my $indentation_level = 0;
+
+    if ($line =~ /^(\s*)/)
+    {
+        $indentation_level = length($1);
+    }
+
+    print "IN _GetIndentationLevel    $indentation_level\n";
+
+    return $indentation_level;
+}
+
 sub _ProcessMoonMethod
 {
     my $self = shift;
     my $line = shift;
     my $rawLine = shift;
     my $logger = $self->GetLogger($self);
-    $logger->debug("=== Entering _ProcessPerlMethod ===");
+    my $signature = 0;
 
     my $sClassName = $self->{'_sCurrentClass'};
 
@@ -327,7 +362,57 @@ sub _ProcessMoonMethod
         push (@{$self->{'_hData'}->{'class'}->{$sClassName}->{'subroutineorder'}}, $sName);
         $self->{'_sCurrentMethodName'} = $sName;
         $self->{'_sProtoType'} = $sProtoType;
+        $signature = 1;
     }
+
+    if (!defined($self->{'_sCurrentMethodName'})) {$self->{'_sCurrentMethodName'}='';}
+    if (!defined($self->{'_sProtoType'})) {$self->{'_sProtoType'}='';}
+
+    my $sMethodName = $self->{'_sCurrentMethodName'};
+    my $sProtoType = $self->{'_sProtoType'};
+
+    # Lets find out if this is a public or private method/function based on a naming standard
+    if ($sMethodName =~ /^_/) { $self->{'_sCurrentMethodState'} = 'private'; }
+    else { $self->{'_sCurrentMethodState'} = 'public'; }
+
+    my $sMethodState = $self->{'_sCurrentMethodState'};
+    $logger->debug("Method State: $sMethodState");
+
+    # Track the indentation level to determine when we are inside the function body
+    my $indentation_level = $self->_GetIndentationLevel($line);
+
+     # We use the indentation level to determine if we are still inside the function block
+    if ($indentation_level > $self->{'_currentIndentLevel'})
+    {
+        # We're still inside the function body, increasing indentation
+        $self->{'_currentIndentLevel'} = $indentation_level;
+        print("We are inside the function body\n");
+    }
+    elsif ($indentation_level < $self->{'_currentIndentLevel'} && !$signature)
+    {
+        # TODO : we might need to ignore the first empty line after the function
+        # We are exiting the function body, as indentation has decreased
+        $logger->debug("Exiting the function body");
+        $self->_ChangeState('NORMAL');
+        $self->RESETSUB();
+        $self->{'_currentIndentLevel'} = $indentation_level;
+    }
+
+    # Record the current line for code output
+    $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'code'} .= $rawLine;
+    $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'length'}++;
+
+
+     unless (defined $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'state'})
+    {
+        $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'state'} = $sMethodState;
+    }
+    # This is for function/method
+    unless (defined $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'type'})
+    {
+        $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'type'} = "method";
+    }
+    $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'prototype'} = $sProtoType;
 }
 
 
