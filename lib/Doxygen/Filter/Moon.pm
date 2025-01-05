@@ -46,17 +46,17 @@ sub new
     # the various variables
     #*
     my $pkg = shift;
-    my $class = ref($pkg) || $pkg;
+    my $module = ref($pkg) || $pkg;
 
     my $self = {};
-    bless ($self, $class);
+    bless ($self, $module);
 
     $self->{'_iDebug'}           = 1;
 
     my $logger = $self->GetLogger($self);
 
     $logger->debug("=== Entering New ===");
-    $logger->info("Class : $class\n");
+    $logger->info("Class : $module\n");
 
     # Lets send any passed in arguments to the _init method
     $self->_init(@_);
@@ -88,7 +88,7 @@ sub RESETCLASS
     my $self = shift;
     #$self->{'_sCurrentClass'}  = 'main';
     #push (@{$self->{'_hData'}->{'class'}->{'classorder'}}, 'main');
-    $self->_SwitchClass('main');
+    $self->_SwitchModule('main');
 }
 
 sub RESETDOXY  { shift->{'_aDoxygenBlock'}  = [];    }
@@ -219,7 +219,7 @@ sub ProcessFile
             {
                 $self->_ChangeState('METHOD');
             }
-            elsif ($line =~ /^\s*#\*\*\s*\@/)
+            elsif ($line =~ /^\s*--\*\*\s*\@/)
             {
                 $self->_ChangeState('DOXYGEN');
             }
@@ -246,8 +246,6 @@ sub ProcessFile
                 # VERSION = '0.25';
                 my $version = $1;
 
-                print "version ::: $version\n";
-
                 # remove () if we have them
                 $version =~ s/[\'\"\(\)\;]//g;
                 $self->{'_hData'}->{'filename'}->{'version'} = $version;
@@ -256,14 +254,14 @@ sub ProcessFile
             {
                 # Variables
                 my $varName = $1;
-
-
-
             }
         }
         elsif ($self->{'_sState'} eq 'METHOD')  {
             print "PROCESSING METHOD ::: $line\n";
             $self->_ProcessMoonMethod($uncommentLine, $line);
+        }
+        elsif ($self->{'_sState'} eq 'DOXYGEN') {
+            push (@{$self->{'_aDoxygenBlock'}}, $line);
         }
     }
 }
@@ -272,24 +270,24 @@ sub ProcessFile
 # Private Methods
 # ----------------------------------------
 
-sub _SwitchClass
+sub _SwitchModule
 {
     my $self = shift;
-    my $class = shift;
+    my $module = shift;
 
-    $self->{'_sCurrentClass'} = $class;
-    if (!exists $self->{'_hData'}->{'class'}->{$class})
+    $self->{'_sCurrentModule'} = $module;
+    if (!exists $self->{'_hData'}->{'module'}->{$module})
     {
-        push(@{$self->{'_hData'}->{'class'}->{'classorder'}}, $class);
-        $self->{'_hData'}->{'class'}->{$class} = {
-            classname                   => $class,
+        push(@{$self->{'_hData'}->{'module'}->{'moduleorder'}}, $module);
+        $self->{'_hData'}->{'module'}->{$module} = {
+            modulename                   => $module,
             inherits                    => [],
             attributeorder              => [],
             subroutineorder             => [],
         };
     }
 
-    return $self->{'_hData'}->{'class'}->{$class};
+    return $self->{'_hData'}->{'module'}->{$module};
 }
 
 
@@ -341,7 +339,7 @@ sub _ProcessMoonMethod
     my $logger = $self->GetLogger($self);
     my $signature = 0;
 
-    my $sClassName = $self->{'_sCurrentClass'};
+    my $sModuleName = $self->{'_sCurrentModule'};
 
     if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/)
     {
@@ -359,7 +357,7 @@ sub _ProcessMoonMethod
         $logger->debug("Method Name: $sName");
         $logger->debug("Method Proto: $sProtoType");
 
-        push (@{$self->{'_hData'}->{'class'}->{$sClassName}->{'subroutineorder'}}, $sName);
+        push (@{$self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutineorder'}}, $sName);
         $self->{'_sCurrentMethodName'} = $sName;
         $self->{'_sProtoType'} = $sProtoType;
         $signature = 1;
@@ -399,20 +397,20 @@ sub _ProcessMoonMethod
     }
 
     # Record the current line for code output
-    $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'code'} .= $rawLine;
-    $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'length'}++;
+    $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'code'} .= $rawLine;
+    $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'length'}++;
 
 
-     unless (defined $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'state'})
+     unless (defined $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'state'})
     {
-        $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'state'} = $sMethodState;
+        $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'state'} = $sMethodState;
     }
     # This is for function/method
-    unless (defined $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'type'})
+    unless (defined $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'type'})
     {
-        $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'type'} = "method";
+        $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'type'} = "method";
     }
-    $self->{'_hData'}->{'class'}->{$sClassName}->{'subroutines'}->{$sMethodName}->{'prototype'} = $sProtoType;
+    $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'prototype'} = $sProtoType;
 }
 
 
