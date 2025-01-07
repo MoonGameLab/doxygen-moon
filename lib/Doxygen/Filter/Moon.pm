@@ -106,6 +106,7 @@ sub _init
     $self->RESETDOXY();
 }
 
+sub _RestoreState { shift->_ChangeState(); }
 sub _ChangeState
 {
     #** @method private _ChangeState ($state)
@@ -221,6 +222,7 @@ sub ProcessFile
             }
             elsif ($line =~ /^\s*--\*\*\s*\@/)
             {
+                print "SWITCHED TO DOXYGEN STATE";
                 $self->_ChangeState('DOXYGEN');
             }
         }
@@ -228,6 +230,29 @@ sub ProcessFile
         {
             $logger->debug("We are in state: METHOD");
             if ($line =~ /^\s*#\*\*\s*\@/ ) { $self->_ChangeState('DOXYGEN'); }
+        }
+        elsif ($self->{'_sState'} eq 'DOXYGEN')
+        {
+            print "Line DOXYGEN ::: $line\n";
+            $logger->debug("We are in state: DOXYGEN");
+            # If there are no more comments, then reset the state to the previous state
+            unless ($line =~ /^\s*--/)
+            {
+                # The general idea is we gather the whole doxygen comment in to an array and process
+                # that array all at once in the _ProcessDoxygenCommentBlock.  This way we do not have
+                # to artificially keep track of what type of comment block it is between each line
+                # that we read from the file.
+                $logger->debug("End of Doxygen Comment Block");
+                $self->_ProcessDoxygenCommentBlock();
+                $self->_RestoreState();
+                $logger->debug("We are in state $self->{'_sState'}");
+                if ($self->{'_sState'} eq 'NORMAL')
+                {
+                    # If this comment block is right next to a subroutine, lets make sure we
+                    # handle that condition
+                    if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/) { $self->_ChangeState('METHOD'); }
+                }
+            }
         }
 
         if ($self->{'_sState'} eq 'NORMAL')
@@ -280,9 +305,9 @@ sub ProcessFile
                     # Lets look for an single in-line doxygen comment on a variable, array, or hash declaration
                     my $sBlock = $1;
                     push (@{$self->{'_aDoxygenBlock'}}, $sBlock);
-                    #$self->_ProcessDoxygenCommentBlock(); TODO
+                    print "_aDoxygenBlock ::::: INBLOCK\n";
+                    $self->_ProcessDoxygenCommentBlock();
                 }
-
             }
         }
         elsif ($self->{'_sState'} eq 'METHOD')  {
@@ -290,6 +315,7 @@ sub ProcessFile
             $self->_ProcessMoonMethod($uncommentLine, $line);
         }
         elsif ($self->{'_sState'} eq 'DOXYGEN') {
+            print "PUSHED TO _aDoxygenBlock $line \n";
             push (@{$self->{'_aDoxygenBlock'}}, $line);
         }
     }
@@ -440,6 +466,236 @@ sub _ProcessMoonMethod
         $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'type'} = "method";
     }
     $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'prototype'} = $sProtoType;
+}
+
+
+sub _ProcessDoxygenCommentBlock
+{
+    #** @method private _ProcessDoxygenCommentBlock ()
+    # This method will process an entire comment block in one pass, after it has all been gathered by the state machine
+    #*
+    my $self = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("### Entering _ProcessDoxygenCommentBlock ###");
+
+    my @aBlock = @{$self->{'_aDoxygenBlock'}};
+
+    # Lets clean up the array in the object now that we have a local copy as we will no longer need that.  We want to make
+    # sure it is all clean and ready for the next comment block
+    $self->RESETDOXY();
+
+    my $sModuleName = $self->{'_sCurrentModule'};
+    my $sSubState = '';
+    print("We are currently in module $sModuleName\n");
+
+    # Lets grab the command line and put it in a variable for easier use
+    my $sCommandLine = $aBlock[0];
+    print("The command line for this doxygen comment is $sCommandLine\n");
+
+    $sCommandLine =~ /^\s*--\*\*\s+\@([\w:]+)\s+(.*)/;
+    my $sCommand = lc($1);
+    my $sOptions = $2;
+
+    if (!defined($sOptions))
+    {
+      # Lets check special case with a '.' or ',' e.g @winchhooks.
+      $sCommandLine =~ /^\s*--\*\*\s+\@([\w:]+)([\.,].*)/;
+      $sCommand = lc($1);
+      $sOptions = "";
+      if (defined($2))
+      {
+        $sOptions = "$2";
+      }
+    }
+    print("Command: $sCommand\n");
+    print("Options: $sOptions\n");
+
+    # If the user entered @fn instead of @function, lets change it
+    if ($sCommand eq "fn") { $sCommand = "function"; }
+
+    # Lets find out what doxygen sub state we should be in
+    if    ($sCommand eq 'file')     { $sSubState = 'DOXYFILE';     }
+    elsif ($sCommand eq 'class')    { $sSubState = 'DOXYCLASS';    }
+    elsif ($sCommand eq 'package')  { $sSubState = 'DOXYCLASS';    }
+    elsif ($sCommand eq 'function') { $sSubState = 'DOXYFUNCTION'; }
+    elsif ($sCommand eq 'method')   { $sSubState = 'DOXYMETHOD';   }
+    elsif ($sCommand eq 'attr')     { $sSubState = 'DOXYATTR';     }
+    elsif ($sCommand eq 'var')      { $sSubState = 'DOXYATTR';     }
+    else { $sSubState = 'DOXYCOMMENT'; }
+    $logger->debug("Substate is now $sSubState");
+
+    if ($sSubState eq 'DOXYFILE' )
+    {
+        $logger->debug("Processing a Doxygen file object");
+        # We need to remove the command line from this block
+        shift @aBlock;
+        $self->{'_hData'}->{'filename'}->{'details'} = $self->_RemoveMoonCommentFlags(\@aBlock);
+    }
+    elsif ($sSubState eq 'DOXYCOMMENT')
+    {
+        $logger->debug("Processing a Doxygen class object");
+        # For extra comment blocks we need to add the command and option line back to the front of the array
+        my $sMethodName = $self->{'_sCurrentMethodName'};
+        if (defined $sMethodName)
+        {
+            $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'comments'} .= "\n";
+            $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'comments'} .= $self->_RemoveMoonCommentFlags(\@aBlock);
+            $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'comments'} .= "\n";
+        }
+        else
+        {
+            $self->{'_hData'}->{'module'}->{$sModuleName}->{'comments'} .= "\n";
+            $self->{'_hData'}->{'module'}->{$sModuleName}->{'comments'} .= $self->_RemoveMoonCommentFlags(\@aBlock);
+            $self->{'_hData'}->{'module'}->{$sModuleName}->{'comments'} .= "\n";
+        }
+    }
+    elsif ($sSubState eq 'DOXYATTR')
+    {
+        print("IN DOXYATTR  $sOptions \n");
+        # Process the doxygen header first then loop through the rest of the comments
+        #my ($sState, $sAttrName, $sComments) = ($sOptions =~ /(?:(public|private)\s+)?([\$@%\*][\w:]+)\s+(.*)/);
+        my ($sState, $modifiers, $modifiersLoop, $modifiersChoice, $fullSpec, $typeSpec, $typeName, $typeLoop, $pointerLoop, $typeCode, $sAttrName, $sComments) = ($sOptions =~ /(?:(public|protected|private)\s+)?(((static|const)\s+)*)((((\w+::)*\w+(\s+|\s*\*+\s+|\s+\*+\s*))|)([\$@%\*])([\w:]+))\s+(.*)/);
+        if (defined $sAttrName)
+        {
+            my $attrDef = $self->{'_hData'}->{'module'}->{$sModuleName}->{'attributes'}->{$sAttrName} ||= {};
+            if ($typeName)
+            {
+                $attrDef->{'type'} = $typeName;
+            }
+            else
+            {
+                $attrDef->{'type'} = $self->_ConvertTypeCode($typeCode);
+            }
+            if (defined $sState)
+            {
+                $attrDef->{'state'} = $sState;
+            }
+            if (defined $sComments)
+            {
+                $attrDef->{'comments'} = $sComments;
+            }
+            if (defined $modifiers)
+            {
+                $attrDef->{'modifiers'} = $modifiers;
+            }
+            ## We need to remove the command line from this block
+            shift @aBlock;
+            $attrDef->{'details'} = $self->_RemoveMoonCommentFlags(\@aBlock);
+            push(@{$self->GetCurrentClass()->{attributeorder}}, $sAttrName);
+        }
+        else
+        {
+            print("invalid syntax for attribute: $sOptions\n"); # TODO
+        }
+    } # End DOXYATTR
+    elsif ($sSubState eq 'DOXYFUNCTION' || $sSubState eq 'DOXYMETHOD')
+    {
+        # Process the doxygen header first then loop through the rest of the comments
+        $sOptions =~ /^(.*?)\s*\(\s*(.*?)\s*\)/;
+        $sOptions = $1;
+        my $sParameters = $2;
+
+        my @aOptions;
+        my $state;
+        my $sMethodName;
+
+        if (defined $sOptions)
+        {
+            @aOptions = split(/\s+/, $sOptions);
+            # State = Public/Private
+            if ($aOptions[0] eq "public" || $aOptions[0] eq "private" || $aOptions[0] eq "protected")
+            {
+                $state = shift @aOptions;
+            }
+            $sMethodName = pop(@aOptions);
+        }
+
+        if ($sSubState eq "DOXYFUNCTION" && !grep(/^static$/, @aOptions))
+        {
+            unshift(@aOptions, "static");
+        }
+
+        unless (defined $sMethodName)
+        {
+            # If we are already in a subroutine and a user uses sloppy documentation and only does
+            # #**@method in side the subroutine, then lets pull the current method name from the object.
+            # If there is no method defined there, we should die.
+            if (defined $self->{'_sCurrentMethodName'}) { $sMethodName = $self->{'_sCurrentMethodName'}; }
+            else { die "Missing method name in $sCommand syntax"; }
+        }
+
+        # If we are not yet in a subroutine, lets keep track that we are now processing a subroutine and its name
+        unless (defined $self->{'_sCurrentMethodName'}) { $self->{'_sCurrentMethodName'} = $sMethodName; }
+
+        if (defined $sParameters) { $sParameters = $self->_ConvertParameters($sParameters); }
+
+        $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'returntype'} = join(" ", @aOptions);
+        $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'type'} = $sCommand;
+        if (defined $state)
+        {
+            $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'state'} = $state;
+        }
+        $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'parameters'} = $sParameters;
+        # We need to remove the command line from this block
+        shift @aBlock;
+        $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'details'} = $self->_RemoveMoonCommentFlags(\@aBlock);
+
+    } # End DOXYFUNCTION || DOXYMETHOD
+
+}
+
+
+sub _RemoveMoonCommentFlags
+{
+    #** @method private _RemoveMoonCommentFlags ($aBlock)
+    # This method will remove all of the comment marks "--" for our output to Doxygen.  If the line is
+    # flagged for verbatim then lets not do anything.
+    # @param aBlock - required array_ref (doxygen comment as an array of code lines)
+    # @retval sBlockDetails - string (doxygen comments in one long string)
+    #*
+    my $self = shift;
+    my $aBlock = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("### Entering _RemoveMoonCommentFlags ###");
+
+    my $sBlockDetails = "";
+    my $iInVerbatimBlock = 0;
+    foreach my $line (@$aBlock)
+    {
+        # Lets check for a verbatim command option like '# @verbatim'
+        if ($line =~ /^\s*--\s*\@verbatim/)
+        {
+            $logger->debug("Found verbatim command");
+            # We need to remove the comment marker from the '# @verbaim' line now since it will not be caught later
+            $line =~ s/^\s*#\s*/ /;
+            $iInVerbatimBlock = 1;
+        }
+        elsif ($line =~ /^\s*--\s*\@endverbatim/)
+        {
+            $logger->debug("Found endverbatim command");
+            $iInVerbatimBlock = 0;
+        }
+        # Lets remove any doxygen command initiator
+        $line =~ s/^\s*--\*\*\s*//;
+        # Lets remove any doxygen command terminators
+        $line =~ s/^\s*--\*\s*//;
+        # Lets remove all of the Perl comment markers so long as we are not in a verbatim block
+        # if ($iInVerbatimBlock == 0) { $line =~ s/^\s*#+//; }
+        # Patch from Sebastian Rose to address spacing and indentation in code examples
+        if ($iInVerbatimBlock == 0) { $line =~ s/^\s*--\s?//; }
+        $logger->debug("code: $line");
+        # Patch from Mihai MOJE to address method comments all on the same line.
+        $sBlockDetails .= $line . "<br>";
+        #$sBlockDetails .= $line;
+    }
+    $sBlockDetails =~ s/^([ \t]*\n)+//s;
+    chomp($sBlockDetails);
+    if ($sBlockDetails)
+    {
+        $sBlockDetails =~ s/^/ \*/gm;
+        $sBlockDetails .= "\n";
+    }
+    return $sBlockDetails;
 }
 
 
