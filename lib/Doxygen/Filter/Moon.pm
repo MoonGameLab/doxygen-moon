@@ -51,7 +51,7 @@ sub new
     my $self = {};
     bless ($self, $module);
 
-    $self->{'_iDebug'}           = 1;
+    $self->{'_iDebug'}           = 0;
 
     my $logger = $self->GetLogger($self);
 
@@ -212,7 +212,6 @@ sub ProcessFile
 
         # Convert syntax block header to supported doxygen form, if this line is a header
         $line = $self->_ConvertToOfficialDoxygenSyntax($line);
-        print "Current state: $self->{'_sState'}\n";
 
         if ($self->{'_sState'} eq 'NORMAL')
         {
@@ -222,7 +221,6 @@ sub ProcessFile
             }
             elsif ($line =~ /^\s*--\*\*\s*\@/)
             {
-                print "SWITCHED TO DOXYGEN STATE";
                 $self->_ChangeState('DOXYGEN');
             }
         }
@@ -233,7 +231,6 @@ sub ProcessFile
         }
         elsif ($self->{'_sState'} eq 'DOXYGEN')
         {
-            print "Line DOXYGEN ::: $line\n";
             $logger->debug("We are in state: DOXYGEN");
             # If there are no more comments, then reset the state to the previous state
             unless ($line =~ /^\s*--/)
@@ -257,11 +254,10 @@ sub ProcessFile
 
         if ($self->{'_sState'} eq 'NORMAL')
         {
-            print "Line ::: $line\n";
             if ($line =~ /^\s*(\w+)\s*=\s*(?:assert\s+)?require\s+(?:['"][^'"]*['"]|\w+)(?:\s*\.\.\s*(?:['"][^'"]*['"]|\w+))*/)
             {
                 my $sIncludeModule = $1;
-                if (!defined($sIncludeModule))
+                if (defined($sIncludeModule))
                 {
                     push (@{$self->{'_hData'}->{'includes'}}, $sIncludeModule);
                 }
@@ -305,17 +301,14 @@ sub ProcessFile
                     # Lets look for an single in-line doxygen comment on a variable, array, or hash declaration
                     my $sBlock = $1;
                     push (@{$self->{'_aDoxygenBlock'}}, $sBlock);
-                    print "_aDoxygenBlock ::::: INBLOCK\n";
                     $self->_ProcessDoxygenCommentBlock();
                 }
             }
         }
         elsif ($self->{'_sState'} eq 'METHOD')  {
-            print "PROCESSING METHOD ::: $line\n";
             $self->_ProcessMoonMethod($uncommentLine, $line);
         }
         elsif ($self->{'_sState'} eq 'DOXYGEN') {
-            print "PUSHED TO _aDoxygenBlock $line \n";
             push (@{$self->{'_aDoxygenBlock'}}, $line);
         }
     }
@@ -381,8 +374,6 @@ sub _GetIndentationLevel
         $indentation_level = length($1);
     }
 
-    print "IN _GetIndentationLevel    $indentation_level\n";
-
     return $indentation_level;
 }
 
@@ -439,7 +430,6 @@ sub _ProcessMoonMethod
     {
         # We're still inside the function body, increasing indentation
         $self->{'_currentIndentLevel'} = $indentation_level;
-        print("We are inside the function body\n");
     }
     elsif ($indentation_level < $self->{'_currentIndentLevel'} && !$signature)
     {
@@ -486,11 +476,9 @@ sub _ProcessDoxygenCommentBlock
 
     my $sModuleName = $self->{'_sCurrentModule'};
     my $sSubState = '';
-    print("We are currently in module $sModuleName\n");
 
     # Lets grab the command line and put it in a variable for easier use
     my $sCommandLine = $aBlock[0];
-    print("The command line for this doxygen comment is $sCommandLine\n");
 
     $sCommandLine =~ /^\s*--\*\*\s+\@([\w:]+)\s+(.*)/;
     my $sCommand = lc($1);
@@ -507,8 +495,6 @@ sub _ProcessDoxygenCommentBlock
         $sOptions = "$2";
       }
     }
-    print("Command: $sCommand\n");
-    print("Options: $sOptions\n");
 
     # If the user entered @fn instead of @function, lets change it
     if ($sCommand eq "fn") { $sCommand = "function"; }
@@ -551,7 +537,6 @@ sub _ProcessDoxygenCommentBlock
     }
     elsif ($sSubState eq 'DOXYATTR')
     {
-        print("IN DOXYATTR  $sOptions \n");
         # Process the doxygen header first then loop through the rest of the comments
         #my ($sState, $sAttrName, $sComments) = ($sOptions =~ /(?:(public|private)\s+)?([\$@%\*][\w:]+)\s+(.*)/);
         my ($sState, $modifiers, $modifiersLoop, $modifiersChoice, $fullSpec, $typeSpec, $typeName, $typeLoop, $pointerLoop, $typeCode, $sAttrName, $sComments) = ($sOptions =~ /(?:(public|protected|private)\s+)?(((static|const)\s+)*)((((\w+::)*\w+(\s+|\s*\*+\s+|\s+\*+\s*))|)([\$@%\*])([\w:]+))\s+(.*)/);
@@ -697,6 +682,244 @@ sub _RemoveMoonCommentFlags
     }
     return $sBlockDetails;
 }
+
+sub _PrintFilenameBlock
+{
+    #** @method private _PrintFilenameBlock ()
+    # This method will print the filename section in appropriate doxygen syntax
+    #*
+    my $self = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("### Entering _PrintFilenameBlock ###");
+
+     if (defined $self->{'_hData'}->{'filename'}->{'fullpath'})
+     {
+        print "/** \@file \"$self->{'_hData'}->{'filename'}->{'fullpath'}\"\n";
+        if (defined $self->{'_hData'}->{'filename'}->{'details'}) { print "$self->{'_hData'}->{'filename'}->{'details'}\n"; }
+        if (defined $self->{'_hData'}->{'filename'}->{'version'}) { print "\@version $self->{'_hData'}->{'filename'}->{'version'}\n"; }
+        if (defined($PPR::ERROR))
+        {
+            print "\n";
+            my $opt_offset = 0;
+            my $line = $PPR::ERROR->line($opt_offset);
+            my $source = $PPR::ERROR->source();
+            print("Found error in the perl code around line: $line\n");
+            print("\\verbatim\n$source\n\\endverbatim\n");
+        }
+        else
+        {
+          if ($self->{'_decommentOK'} == 0)
+          {
+              print("Found problem in decommenting the perl code\n");
+          }
+        }
+        print "*/\n";
+     }
+}
+
+sub _PrintIncludesBlock
+{
+    my $self = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("### Entering _PrintIncludeBlock ###");
+
+    foreach my $include (@{$self->{'_hData'}->{'includes'}})
+    {
+        # print without extention for now
+        print "\#include \"$include\"\n";
+    }
+    print "\n";
+}
+
+sub _PrintModuleBlock
+{
+    my $self = shift;
+    my $sFullModule = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("### Entering _PrintClassBlock ###");
+
+    $sFullModule =~ /./;
+    $sFullModule =~ /(.*)\:\:(\w+)$/;
+    my $parent = $1;
+    $sFullModule =~ /(.*)\:\:(\w+)$/;
+    my $module = $2 || $sFullModule;
+
+    my $usedModule = $sFullModule;
+
+    if ($sFullModule eq "main")
+    {
+      $usedModule = $self->{'_hData'}->{'filename'}->{'shortname'};
+      $usedModule =~ s/\.p[lm]$//;
+      $usedModule =~ s/-/_/g;
+      $usedModule =~ s/^/main_/;
+    }
+
+    print "/** \@class $usedModule\n";
+
+    my $moduleDef = $self->{'_hData'}->{'module'}->{$sFullModule};
+
+    my $details = $self->{'_hData'}->{'module'}->{$sFullModule}->{'details'};
+    if (defined $details) { print "$details\n"; }
+
+    my $comments = $self->{'_hData'}->{'module'}->{$sFullModule}->{'comments'};
+    if (defined $comments) { print "$comments\n"; }
+
+    print "\@nosubgrouping */\n";
+    print "namespace $parent {\n" if ($parent);
+    if ($sFullModule eq "main")
+    {
+        print "class $usedModule";
+    }
+    else
+    {
+        print "class $module";
+    }
+
+    print "\n{\n";
+    print "public:\n";
+}
+
+sub _PrintMethodBlock
+{
+     #*
+    my $self = shift;
+    my $module = shift;
+    my $method = shift;
+
+    my $methodDef = $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method};
+
+    my $state = $methodDef->{state};
+    my $type = $methodDef->{type};
+
+    my $logger = $self->GetLogger($self);
+    $logger->debug("### Entering _PrintMethodBlock ###");
+
+    my $returntype = $methodDef->{'returntype'} || $type;
+    my $parameters = $methodDef->{'parameters'} || "";
+    my $prototype = $methodDef->{'prototype'} || "";
+
+    if ($parameters =~ /^ *$/)
+    {
+        if ($prototype =~ /^ *$/)
+        {
+            print "/** \@fn $state $returntype $method\(\)\n";
+        }
+        else
+        {
+            print "/** \@fn $state $returntype $method\($prototype\)\n";
+        }
+    }
+    else
+    {
+        print "/** \@fn $state $returntype $method\($parameters\)\n";
+    }
+
+    my $details = $methodDef->{'details'};
+    if (defined $details) { print "$details\n"; }
+    else { print "Undocumented Method\n"; }
+
+    my $comments = $methodDef->{'comments'};
+    if (defined $comments) { print "$comments\n"; }
+
+    # Print collapsible source code block
+    print "\@htmlonly[block]\n";
+    print "<div id='codesection-$method' class='dynheader closed' style='cursor:pointer;' onclick='return toggleVisibility(this)'>\n";
+    print "\t<img id='codesection-$method-trigger' src='closed.png' alt='open/close icon' style='display:inline'/> <b>Code:</b>\n";
+    print "</div>\n";
+    print "<div id='codesection-$method-summary' class='dyncontent' style='display:block;font-size:small;'>click to view</div>\n";
+    print "<div id='codesection-$method-content' class='dyncontent' style='display: none;'>\n";
+    print "\@endhtmlonly\n";
+
+    print "\@code\n";
+    print "\# Number of lines of code in $method: $methodDef->{'length'}\n";
+    print "$methodDef->{'code'}\n";
+    print "\@endcode \@htmlonly[block]\n";
+    print "</div>\n";
+    print "\@endhtmlonly */\n";
+
+    if ($parameters =~ /^ *$/)
+    {
+        if ($prototype =~ /^ *$/)
+        {
+            print "$state $returntype $method\(\)\;\n";
+        }
+        else
+        {
+            print "$state $returntype $method\($prototype\)\;\n";
+        }
+    }
+    else
+    {
+        print "$state $returntype $method\($parameters\)\;\n";
+    }
+}
+
+sub PrintAll
+{
+    my $self = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("### Entering PrintAll ###");
+
+    binmode STDOUT, ":utf8";
+
+    $self->_PrintFilenameBlock();
+    $self->_PrintIncludesBlock();
+
+    foreach my $module (@{$self->{'_hData'}->{'module'}->{'moduleorder'}})
+    {
+        my $moduleDef = $self->{'_hData'}->{'module'}->{$module};
+
+        # skip the default main class unless we really have something to print
+        if ($module eq "main" &&
+            @{$moduleDef->{attributeorder}} == 0 &&
+            @{$moduleDef->{subroutineorder}} == 0 &&
+            (!defined $moduleDef->{details}) &&
+            (!defined $moduleDef->{comments})
+        )
+        {
+            next;
+        }
+
+        $self->_PrintModuleBlock($module);
+
+        foreach my $sAttrName (@{$self->{'_hData'}->{'module'}->{$module}->{'attributeorder'}})
+        {
+            my $attrDef = $self->{'_hData'}->{'module'}->{$module}->{'attributes'}->{$sAttrName};
+
+            my $sState = $attrDef->{'state'} || 'public';
+            my $sComments = $attrDef->{'comments'};
+            my $sDetails = $attrDef->{'details'};
+            if (defined $sComments || defined $sDetails)
+            {
+                print "/**\n";
+                if (defined $sComments)
+                {
+                    print " \* \@brief $sComments\n";
+                }
+
+                if ($sDetails)
+                {
+                    print " * \n".$sDetails;
+                }
+
+                print " */\n";
+            }
+
+            print("$sState:\n$attrDef->{modifiers}$sAttrName;\n\n");
+        }
+
+        foreach my $methodName (@{$self->{'_hData'}->{'module'}->{$module}->{'subroutineorder'}})
+        {
+            $self->_PrintMethodBlock($module, $methodName);
+        }
+        # Print end of class mark
+        print "}\;\n";
+        # print end of namespace if class is nested
+        print "};\n" if ($module =~ /::/);
+    }
+}
+
+
 
 
 
