@@ -8,6 +8,7 @@
     - includes are tracked
     - author can be specified
 
+
 [Sun Jan  5]
   * Process methods     [X]
     - Arrow/Fat arrow
@@ -24,5 +25,3 @@
   * TO-DO next
     - change dev branch to be visible
     - Process module vars
-
-
