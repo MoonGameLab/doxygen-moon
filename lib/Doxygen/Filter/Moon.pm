@@ -227,7 +227,9 @@ sub ProcessFile
         elsif ($self->{'_sState'} eq 'METHOD')
         {
             $logger->debug("We are in state: METHOD");
-            if ($line =~ /^\s*#\*\*\s*\@/ ) { $self->_ChangeState('DOXYGEN'); }
+            if ($line =~ /^\s*--\*\*\s*\@/ ) {
+              $self->_ChangeState('DOXYGEN');
+            }
         }
         elsif ($self->{'_sState'} eq 'DOXYGEN')
         {
@@ -486,14 +488,14 @@ sub _ProcessDoxygenCommentBlock
 
     if (!defined($sOptions))
     {
-      # Lets check special case with a '.' or ',' e.g @winchhooks.
-      $sCommandLine =~ /^\s*--\*\*\s+\@([\w:]+)([\.,].*)/;
-      $sCommand = lc($1);
-      $sOptions = "";
-      if (defined($2))
-      {
-        $sOptions = "$2";
-      }
+        # Lets check special case with a '.' or ',' e.g @winchhooks.
+        $sCommandLine =~ /^\s*--\*\*\s+\@([\w:]+)([\.,].*)/;
+        $sCommand = lc($1);
+        $sOptions = "";
+        if (defined($2))
+        {
+            $sOptions = "$2";
+        }
     }
 
     # If the user entered @fn instead of @function, lets change it
@@ -578,6 +580,7 @@ sub _ProcessDoxygenCommentBlock
         # Process the doxygen header first then loop through the rest of the comments
         $sOptions =~ /^(.*?)\s*\(\s*(.*?)\s*\)/;
         $sOptions = $1;
+
         my $sParameters = $2;
 
         my @aOptions;
@@ -611,8 +614,6 @@ sub _ProcessDoxygenCommentBlock
 
         # If we are not yet in a subroutine, lets keep track that we are now processing a subroutine and its name
         unless (defined $self->{'_sCurrentMethodName'}) { $self->{'_sCurrentMethodName'} = $sMethodName; }
-
-        if (defined $sParameters) { $sParameters = $self->_ConvertParameters($sParameters); }
 
         $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'returntype'} = join(" ", @aOptions);
         $self->{'_hData'}->{'module'}->{$sModuleName}->{'subroutines'}->{$sMethodName}->{'type'} = $sCommand;
