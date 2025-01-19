@@ -211,9 +211,16 @@ sub _DetectMoonClass
 
     foreach my $line (@{$self->{'_aRawFileData'}})
     {
-        if ($line =~  /^\s*class\s+(\w+)(\s+extends\s+\w+)?\s*$/)
+        if ($line =~  /^\s*class\s+(\w+)\s+extends\s+(\w+)?\s*$/ || ($line =~  /^\s*class\s+(\w+)/))
         {
-            $self->_SwitchModule($1);
+            if (defined($2))
+            {
+                $self->_SwitchModule($2 . "::" . $1);
+            }
+            else
+            {
+                $self->_SwitchModule($1);
+            }
             $flags->{'isMoonClassDefinedInFile'} = 1;
             last;
         }
