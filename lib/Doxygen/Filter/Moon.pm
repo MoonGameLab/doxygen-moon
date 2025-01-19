@@ -23,11 +23,16 @@ my $validStates = {
     'COMMENT'        => 1,
     'DOXYGEN'        => 2,
     'METHOD'         => 3,
+    'CLASS'          => 4,
     'DOXYFILE'       => 21,
     'DOXYCLASS'      => 22,
     'DOXYFUNCTION'   => 23,
     'DOXYMETHOD'     => 24,
     'DOXYCOMMENT'    => 25,
+};
+
+my $flags = {
+    'isMoonClassDefinedInFile' => 0
 };
 
 
@@ -83,7 +88,7 @@ sub RESETSUB
 
 sub RESETFILE  { my $self = shift; $self->{'_aRawFileData'}   = []; $self->{'_aUncommentFileData'}   = [];   }
 
-sub RESETCLASS
+sub RESETMODULE
 {
     my $self = shift;
     #$self->{'_sCurrentClass'}  = 'main';
@@ -96,12 +101,13 @@ sub RESETDOXY  { shift->{'_aDoxygenBlock'}  = [];    }
 sub _init
 {
     my $self = shift;
+    my $module = shift;
     $self->{'_sState'}          = undef;
     $self->{'_sPreviousState'}  = [];
     $self->_ChangeState('NORMAL');
     $self->{'_hData'}           = {};
     $self->RESETFILE();
-    $self->RESETCLASS();
+    $self->RESETMODULE();
     $self->RESETSUB();
     $self->RESETDOXY();
 }
@@ -197,12 +203,37 @@ sub ReadFile
     $self->{'_aUncommentFileData'} = \@aUncommentFileData;
 }
 
+sub _DetectMoonClass
+{
+    my $self = shift;
+    my $logger = $self->GetLogger($self);
+    $logger->debug("=== Entering _DetectMoonClass ===");
+
+    foreach my $line (@{$self->{'_aRawFileData'}})
+    {
+        if ($line =~  /^\s*class\s+(\w+)\s+extends\s+(\w+)?\s*$/ || ($line =~  /^\s*class\s+(\w+)/))
+        {
+            if (defined($2))
+            {
+                $self->_SwitchModule($2 . "::" . $1);
+            }
+            else
+            {
+                $self->_SwitchModule($1);
+            }
+            $flags->{'isMoonClassDefinedInFile'} = 1;
+            last;
+        }
+    }
+}
 
 sub ProcessFile
 {
     my $self = shift;
     my $logger = $self->GetLogger($self);
-    $logger->debug("=== Entering ReadFile ===");
+    $logger->debug("=== Entering ProcessFile ===");
+
+    $self->_DetectMoonClass();
 
     $self->{'_hData'}->{'lineNo'} = 0;
     foreach my $line (@{$self->{'_aRawFileData'}})
@@ -219,6 +250,10 @@ sub ProcessFile
             {
                 $self->_ChangeState('METHOD');
             }
+            elsif ($line =~ /^\s*class\s+\w+(\s+extends\s+\w+)?\s*$/)
+            {
+                $self->_ChangeState('CLASS');
+            }
             elsif ($line =~ /^\s*--\*\*\s*\@/)
             {
                 $self->_ChangeState('DOXYGEN');
@@ -227,6 +262,13 @@ sub ProcessFile
         elsif ($self->{'_sState'} eq 'METHOD')
         {
             $logger->debug("We are in state: METHOD");
+            if ($line =~ /^\s*--\*\*\s*\@/ ) {
+              $self->_ChangeState('DOXYGEN');
+            }
+        }
+        elsif ($self->{'_sState'} eq 'CLASS')
+        {
+            $logger->debug("We are in state: CLASS");
             if ($line =~ /^\s*--\*\*\s*\@/ ) {
               $self->_ChangeState('DOXYGEN');
             }
@@ -251,6 +293,10 @@ sub ProcessFile
                     # handle that condition
                     if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/) { $self->_ChangeState('METHOD'); }
                 }
+                elsif ($self->{'_sState'} eq 'CLASS')
+                {
+                    #print "LINE SWITCHING STATE :::: $line\n";
+                }
             }
         }
 
@@ -273,10 +319,16 @@ sub ProcessFile
                 $version =~ s/[\'\"\(\)\;]//g;
                 $self->{'_hData'}->{'filename'}->{'version'} = $version;
             }
-            elsif ($line =~ /^\s*_MODULE_\s*=\s*['"]([^'"]+)['"]\s*$/)
+            elsif ($line =~ /^\s*_MODULE_\s*=\s*['"]([^'"]+)['"]\s*$/ && $flags->{'isMoonClassDefinedInFile'} == 0)
             {
                 $logger->debug("=== SWITCH MODULE ===");
                 $self->_SwitchModule($1);
+            }
+            elsif ($flags->{'isMoonClassDefinedInFile'} == 0)
+            {
+                my $module = $self->{'_hData'}->{'filename'}->{'shortname'};
+                $module =~ s{\.[^.]+$}{};
+                $self->_SwitchModule($module);
             }
             elsif ($line =~ /^(\w+)\s*=\s*(?:"(.*?)"|(\d+)|{.*}|(\w+)|(\w+)\\)$/)
             {
@@ -307,10 +359,16 @@ sub ProcessFile
                 }
             }
         }
-        elsif ($self->{'_sState'} eq 'METHOD')  {
+        elsif ($self->{'_sState'} eq 'METHOD')
+        {
             $self->_ProcessMoonMethod($uncommentLine, $line);
         }
-        elsif ($self->{'_sState'} eq 'DOXYGEN') {
+        elsif ($self->{'_sState'} eq 'CLASS')
+        {
+            $self->_ProcessMoonClass($uncommentLine, $line);
+        }
+        elsif ($self->{'_sState'} eq 'DOXYGEN')
+        {
             push (@{$self->{'_aDoxygenBlock'}}, $line);
         }
     }
@@ -461,6 +519,46 @@ sub _ProcessMoonMethod
 }
 
 
+
+sub _ProcessMoonClass
+{
+    my $self = shift;
+    my $line = shift;
+    my $rawLine = shift;
+    my $logger = $self->GetLogger($self);
+    my $signature = 0;
+
+    my $sModuleName = $self->{'_sCurrentModule'};
+
+    if ($line =~ /^\s*class\s+(\w+)(\s+extends\s+\w+)?\s*$/)
+    {
+        my $className = $1;
+        $signature = 1;
+    }
+
+    # Track the indentation level to determine when we are inside the function body
+    my $indentation_level = $self->_GetIndentationLevel($line);
+
+     # We use the indentation level to determine if we are still inside the function block
+    if ($indentation_level > $self->{'_currentIndentLevel'})
+    {
+        # We're still inside the function body, increasing indentation
+        $self->{'_currentIndentLevel'} = $indentation_level;
+    }
+    elsif ($indentation_level < $self->{'_currentIndentLevel'} && !$signature)
+    {
+        # TODO : we might need to ignore the first empty line after the function
+        # We are exiting the function body, as indentation has decreased
+        $logger->debug("Exiting the function body");
+        $self->_ChangeState('NORMAL');
+        $self->RESETSUB();
+        $self->{'_currentIndentLevel'} = $indentation_level;
+    }
+
+
+}
+
+
 sub _ProcessDoxygenCommentBlock
 {
     #** @method private _ProcessDoxygenCommentBlock ()
@@ -602,6 +700,7 @@ sub _ProcessDoxygenCommentBlock
         {
             unshift(@aOptions, "static");
         }
+
 
         unless (defined $sMethodName)
         {
