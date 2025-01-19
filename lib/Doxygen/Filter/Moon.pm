@@ -1,4 +1,24 @@
 #** @file Moon.pm
+# @verbatim
+#####################################################################
+# This program is not guaranteed to work at all, and by using this  #
+# program you release the author of any and all liability.          #
+#                                                                   #
+# You may use this code as long as you are in compliance with the   #
+# license (see the LICENSE file) and this notice, disclaimer and    #
+# comment box remain intact and unchanged.                          #
+#                                                                   #
+# Package:     Doxygen::Filter                                      #
+# Class:       Moon                                                 #
+# Description: Methods for prefiltering Moonscript code for Doxygen #
+#                                                                   #
+# Written by:  Tourahi Amine                                        #
+# Created:     2025-01-19                                           #
+#####################################################################
+# @endverbatim
+#
+# @copy 2025, Tourahi Amine (tourahi.amine@gmail.com)
+#*
 package Doxygen::Filter::Moon;
 
 use warnings;
@@ -214,14 +234,7 @@ sub _DetectMoonClass
     {
         if ($line =~  /^\s*class\s+(\w+)\s+extends\s+(\w+)?\s*$/ || ($line =~  /^\s*class\s+(\w+)/))
         {
-            if (defined($2))
-            {
-                $self->_SwitchModule($2 . "::" . $1);
-            }
-            else
-            {
-                $self->_SwitchModule($1);
-            }
+            $self->_SwitchModule($1);
             $flags->{'isMoonClassDefinedInFile'} = 1;
             last;
         }
@@ -299,10 +312,6 @@ sub ProcessFile
                     # If this comment block is right next to a subroutine, lets make sure we
                     # handle that condition
                     if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/) { $self->_ChangeState('METHOD'); }
-                }
-                elsif ($self->{'_sState'} eq 'CLASS')
-                {
-                    #print "LINE SWITCHING STATE :::: $line\n";
                 }
             }
         }
@@ -623,8 +632,6 @@ sub _ProcessDoxygenCommentBlock
 
     # Lets find out what doxygen sub state we should be in
     if    ($sCommand eq 'file')     { $sSubState = 'DOXYFILE';     }
-    elsif ($sCommand eq 'class')    { $sSubState = 'DOXYCLASS';    }
-    elsif ($sCommand eq 'package')  { $sSubState = 'DOXYCLASS';    }
     elsif ($sCommand eq 'function') { $sSubState = 'DOXYFUNCTION'; }
     elsif ($sCommand eq 'method')   { $sSubState = 'DOXYMETHOD';   }
     elsif ($sCommand eq 'attr')     { $sSubState = 'DOXYATTR';     }
@@ -807,14 +814,14 @@ sub _PrintFilenameBlock
             my $opt_offset = 0;
             my $line = $PPR::ERROR->line($opt_offset);
             my $source = $PPR::ERROR->source();
-            print("Found error in the perl code around line: $line\n");
+            print("Found error in the moon code around line: $line\n");
             print("\\verbatim\n$source\n\\endverbatim\n");
         }
         else
         {
           if ($self->{'_decommentOK'} == 0)
           {
-              print("Found problem in decommenting the perl code\n");
+              print("Found problem in decommenting the Moon code\n");
           }
         }
         print "*/\n";
@@ -1024,8 +1031,171 @@ sub PrintAll
     }
 }
 
+=head1 NAME
 
+Doxygen::Filter::Moon - A Moonscript code pre-filter for Doxygen
 
+=head1 DESCRIPTION
 
+The Doxygen::Filter::Moon module is designed to provide support for documenting
+Moonscript scripts and modules to be used with the Doxygen engine.  We plan on
+supporting most Doxygen style comments.
+Doxgyen style comment blocks for methods/functions can be inside
+or outside the method/function.
 
-1; # End of Doxygen::Filter::Moon
+=head1 USAGE
+
+If you install from source then do:
+
+    perl Makefile.PL
+    make
+    make install
+
+Make sure that the doxygen-filter-Moon script was copied from this project into
+your path somewhere and that it has RX permissions. Example:
+
+    /usr/local/bin/doxygen-Moon
+
+Copy over the Doxyfile file from this project into the root directory of your
+project so that it is at the same level as your lib directory. This file will
+have all of the presets needed for documenting Perl code.  You can edit this
+file with the doxywizard tool if you so desire or if you need to change the
+lib directory location or the output location (the default output is ./doc).
+Please see the Doxygen manual for information on how to configure the Doxyfile
+via a text editor or with the doxywizard tool.
+Example:
+
+    /home/jordan/workspace/PerlDoxygen/trunk/Doxyfile
+    /home/jordan/workspace/PerlDoxygen/trunk/lib/Doxygen/Filter/Perl.pm
+
+Once you have done this you can simply run the following from the root of your
+project to document your Perl scripts or methods. Example:
+
+    /home/any/workspace/PerlDoxygen/trunk/> doxygen Doxyfile
+
+All of your documentation will be in the ./doc/html/ directory inside of your
+project root.
+
+=head1 DOXYGEN SUPPORT
+
+The following Doxygen style comment is the preferred block style, though others
+are supported and are listed below:
+
+    --**
+    -- ........
+    --**
+
+You can also start comment blocks with "##" and end comment blocks with a blank
+line or real code, this allows you to place comments right next to the
+subroutines that they refer to if you wish.  A comment block must have
+continuous "#" comment markers as a blank line can be used as a termination
+mark for the doxygen comment block.
+
+In other languages the Doxygen @fn structural indicator is used to document
+subroutines/functions/methods and the parsing engine figures out what is what.
+In Perl that is a lot harder to do so I have added a `@method` and `@function`
+structural indicator so that they can be documented separately.
+
+=head2 Supported Structural Indicators
+
+    #** @file [filename]
+    # ........
+    #*
+
+    #** @method or @function [method-name] (parameters) [->|=>]
+    # ........
+    #*
+
+    #** @attr or @var [attribute-name] [brief description]
+    # ........
+    #*
+
+    #** @section [section-name] [section-title]
+    # ........
+    #*
+
+    #** @brief [notes]
+    # ........
+    #*
+
+=head2 Support Style Options and Section Indicators
+
+All doxygen style options and section indicators are supported inside the
+structural indicators that we currently support.
+
+=head2 Documenting Functions/Methods
+
+The Doxygen style comment blocks that describe a function or method can
+exist before, after, or inside the subroutine that it is describing. Examples
+are listed below. The normal convention in other languages like C is to have the function/method
+start with an "_" if it is private/protected.
+We do the same thing here even though there is really no
+such thing in Moonscript. The whole reason for this is to help users of the code know
+what functions they should call directly and which they should not.  The generic
+documentation blocks for functions and methods look like:
+
+   --** @method public add (x, y)
+  --** @brief adds two integers
+  --** @param x a number
+  --** @param y a number
+  --** @return return the addition of the two numbers
+
+The parameters would normally be something like $foo, @bar, or %foobar.  I have
+also added support for scalar, array, and hash references and those would be
+documented as $$foo, @$bar, %$foobar.  An example would look this:
+
+    #** @method public ProcessDataValues ($$sFile, %$hDataValues)
+
+=head2 Function / Method Example
+
+    add = (x, y) ->
+      --** @method public add (x, y)
+      --** @brief adds two integers
+      --** @param x a number
+      --** @param y a number
+      --** @return return the addition of the two numbers
+
+=head1 DATA STRUCTURE
+
+    $self->{'_hData'}->{'filename'}->{'fullpath'}   = string
+    $self->{'_hData'}->{'filename'}->{'shortname'}  = string
+    $self->{'_hData'}->{'filename'}->{'version'}    = string
+    $self->{'_hData'}->{'filename'}->{'details'}    = string
+    $self->{'_hData'}->{'includes'}                 = array
+
+    $self->{'_hData'}->{'module'}->{'classorder'}                = array
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutineorder'} = array
+    $self->{'_hData'}->{'module'}->{$module}->{'attributeorder'}  = array
+    $self->{'_hData'}->{'module'}->{$module}->{'details'}         = string
+    $self->{'_hData'}->{'module'}->{$module}->{'comments'}        = string
+
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'type'}        = string (method / function)
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'returntype'}  = string (return type)
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'state'}       = string (public / private)
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'parameters'}  = string (method / function parameters)
+    $self->{'_hData'}->{'class'}->{$module}->{'subroutines'}->{$method}->{'prototype'}   = string (method / function prototype parameters)
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'code'}        = string
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'length'}      = integer
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'details'}     = string
+    $self->{'_hData'}->{'module'}->{$module}->{'subroutines'}->{$method}->{'comments'}    = string
+
+    $self->{'_hData'}->{'module'}->{$module}->{'attributes'}->{$variable}->{'state'}      = string (public / private)
+    $self->{'_hData'}->{'module'}->{$module}->{'attributes'}->{$variable}->{'modifiers'}  = string
+    $self->{'_hData'}->{'module'}->{$module}->{'attributes'}->{$variable}->{'comments'}   = string
+    $self->{'_hData'}->{'module'}->{$module}->{'attributes'}->{$variable}->{'details'}    = string
+
+=head1 AUTHOR
+
+Tourahi Amine <tourahi.amine at gmail littledot com>
+
+Shouts out to the original :
+Doxygen::Filter::Perl Bret Jordan <jordan at open1x littledot org> or <jordan2175 at gmail littledot com>
+
+=head1 LICENSE
+
+Doxygen::Filter::Moon is licensed with an Apache 2 license. See the LICENSE
+file for more details.
+
+=cut
+
+return 1; # End of Doxygen::Filter::Moon
