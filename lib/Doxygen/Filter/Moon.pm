@@ -32,7 +32,8 @@ my $validStates = {
 };
 
 my $flags = {
-    'isMoonClassDefinedInFile' => 0
+    'isMoonClassDefinedInFile' => 0,
+    'isMoonClassMethod' => 0,
 };
 
 
@@ -246,15 +247,15 @@ sub ProcessFile
 
         if ($self->{'_sState'} eq 'NORMAL')
         {
-            if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/)
+            if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ || $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/)
             {
                 $self->_ChangeState('METHOD');
             }
-            elsif ($line =~ /^\s*class\s+\w+(\s+extends\s+\w+)?\s*$/)
+            elsif ($line =~ /^\s*class\s+\w+(\s+extends\s+\w+)?\s*$/ || $line =~ /^\s*class\s+\w+/)
             {
                 $self->_ChangeState('CLASS');
             }
-            elsif ($line =~ /^\s*--\*\*\s*\@/)
+            elsif ($line =~ /^\s*--\*\*\s*\@/ || $line =~ /^\s*--\*\*/)
             {
                 $self->_ChangeState('DOXYGEN');
             }
@@ -262,7 +263,7 @@ sub ProcessFile
         elsif ($self->{'_sState'} eq 'METHOD')
         {
             $logger->debug("We are in state: METHOD");
-            if ($line =~ /^\s*--\*\*\s*\@/ ) {
+            if ($line =~ /^\s*--\*\*\s*\@/ || $line =~ /^\s*--\*\*/) {
               $self->_ChangeState('DOXYGEN');
             }
         }
@@ -270,7 +271,13 @@ sub ProcessFile
         {
             $logger->debug("We are in state: CLASS");
             if ($line =~ /^\s*--\*\*\s*\@/ ) {
-              $self->_ChangeState('DOXYGEN');
+                $self->_ChangeState('DOXYGEN');
+                $flags->{'isMoonClassMethod'} = 1;
+            }
+            if ($line =~ /^\s*(\w+)\s*=\s*\(([^)]*)\)\s*=>\s*/)
+            {
+                $self->_ChangeState('METHOD');
+                $flags->{'isMoonClassMethod'} = 1;
             }
         }
         elsif ($self->{'_sState'} eq 'DOXYGEN')
@@ -447,7 +454,7 @@ sub _ProcessMoonMethod
 
     my $sModuleName = $self->{'_sCurrentModule'};
 
-    if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ or $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/)
+    if ($line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*->/ || $line =~ /^(\w+)\s*=\s*\(([^)]*)\)\s*=>/ || $line =~ /^\s*(\w+)\s*=\s*\(([^)]*)\)\s*=>\s*/)
     {
         # We should keep track of the order in which the methods were written in the code so we can print
         # them out in the same order
@@ -496,7 +503,15 @@ sub _ProcessMoonMethod
         # TODO : we might need to ignore the first empty line after the function
         # We are exiting the function body, as indentation has decreased
         $logger->debug("Exiting the function body");
-        $self->_ChangeState('NORMAL');
+        if ($flags->{'isMoonClassMethod'} == 0)
+        {
+            $self->_ChangeState('NORMAL');
+        }
+        else
+        {
+            $self->_ChangeState('CLASS');
+            $flags->{'isMoonClassMethod'} = 0;
+        }
         $self->RESETSUB();
         $self->{'_currentIndentLevel'} = $indentation_level;
     }
@@ -558,6 +573,11 @@ sub _ProcessMoonClass
 
 }
 
+sub GetCurrentModule
+{
+    my $self = shift;
+    return $self->{'_hData'}->{'module'}->{$self->{'_sCurrentModule'}};
+}
 
 sub _ProcessDoxygenCommentBlock
 {
@@ -579,6 +599,8 @@ sub _ProcessDoxygenCommentBlock
 
     # Lets grab the command line and put it in a variable for easier use
     my $sCommandLine = $aBlock[0];
+
+    #print "DOXYGEN CMD $sCommandLine\n";
 
     $sCommandLine =~ /^\s*--\*\*\s+\@([\w:]+)\s+(.*)/;
     my $sCommand = lc($1);
@@ -638,35 +660,17 @@ sub _ProcessDoxygenCommentBlock
     elsif ($sSubState eq 'DOXYATTR')
     {
         # Process the doxygen header first then loop through the rest of the comments
-        #my ($sState, $sAttrName, $sComments) = ($sOptions =~ /(?:(public|private)\s+)?([\$@%\*][\w:]+)\s+(.*)/);
-        my ($sState, $modifiers, $modifiersLoop, $modifiersChoice, $fullSpec, $typeSpec, $typeName, $typeLoop, $pointerLoop, $typeCode, $sAttrName, $sComments) = ($sOptions =~ /(?:(public|protected|private)\s+)?(((static|const)\s+)*)((((\w+::)*\w+(\s+|\s*\*+\s+|\s+\*+\s*))|)([\$@%\*])([\w:]+))\s+(.*)/);
+        my ($sAttrName) = ($sOptions =~ /(\w+)\s*/);
+
         if (defined $sAttrName)
         {
             my $attrDef = $self->{'_hData'}->{'module'}->{$sModuleName}->{'attributes'}->{$sAttrName} ||= {};
-            if ($typeName)
-            {
-                $attrDef->{'type'} = $typeName;
-            }
-            else
-            {
-                $attrDef->{'type'} = $self->_ConvertTypeCode($typeCode);
-            }
-            if (defined $sState)
-            {
-                $attrDef->{'state'} = $sState;
-            }
-            if (defined $sComments)
-            {
-                $attrDef->{'comments'} = $sComments;
-            }
-            if (defined $modifiers)
-            {
-                $attrDef->{'modifiers'} = $modifiers;
-            }
+
             ## We need to remove the command line from this block
             shift @aBlock;
             $attrDef->{'details'} = $self->_RemoveMoonCommentFlags(\@aBlock);
-            push(@{$self->GetCurrentClass()->{attributeorder}}, $sAttrName);
+
+            push(@{$self->GetCurrentModule()->{attributeorder}}, $sAttrName);
         }
         else
         {
@@ -989,6 +993,7 @@ sub PrintAll
             my $sState = $attrDef->{'state'} || 'public';
             my $sComments = $attrDef->{'comments'};
             my $sDetails = $attrDef->{'details'};
+
             if (defined $sComments || defined $sDetails)
             {
                 print "/**\n";
@@ -1005,7 +1010,7 @@ sub PrintAll
                 print " */\n";
             }
 
-            print("$sState:\n$attrDef->{modifiers}$sAttrName;\n\n");
+            print("$sState:\n$sAttrName;\n\n");
         }
 
         foreach my $methodName (@{$self->{'_hData'}->{'module'}->{$module}->{'subroutineorder'}})
