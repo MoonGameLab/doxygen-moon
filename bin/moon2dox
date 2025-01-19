@@ -1,4 +1,23 @@
 #!/usr/bin/env perl
+#
+#####################################################################
+# This program is not guaranteed to work at all, and by using this  #
+# program you release the author of any and all liability.          #
+#                                                                   #
+# You may use this code as long as you are in compliance with the   #
+# license (see the LICENSE file) and this notice, disclaimer and    #
+# comment box remain intact and unchanged.                          #
+#                                                                   #
+# Script:      moon2dox                                             #
+# Description: pre-filter script for doxygen                        #
+#                                                                   #
+# Written by:  Tourahi Amine                                        #
+# Created:     2025-01-19                                           #
+#####################################################################
+#
+#
+#
+#
 
 use strict;
 use warnings;

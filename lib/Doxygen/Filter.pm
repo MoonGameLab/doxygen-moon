@@ -1,3 +1,24 @@
+#** @file Moon.pm
+# @verbatim
+#####################################################################
+# This program is not guaranteed to work at all, and by using this  #
+# program you release the author of any and all liability.          #
+#                                                                   #
+# You may use this code as long as you are in compliance with the   #
+# license (see the LICENSE file) and this notice, disclaimer and    #
+# comment box remain intact and unchanged.                          #
+#                                                                   #
+# Package:     Doxygen                                              #
+# Class:       Filter                                               #
+# Description: Methods for prefiltering Moonscript code for Doxygen #
+#                                                                   #
+# Written by:  Tourahi Amine                                        #
+# Created:     2025-01-19                                           #
+#####################################################################
+# @endverbatim
+#
+# @copy 2025, Tourahi Amine (tourahi.amine@gmail.com)
+#*
 package Doxygen::Filter;
 
 use 5.8.8;
